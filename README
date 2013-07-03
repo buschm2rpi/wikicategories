@@ -1,0 +1,39 @@
+wikicategories contains a whole bunch of data files and a whole bunch of scripts and programs to process them. 
+
+HOW TO USE:
+skos_categories_en.nt is a giant text file from dbpedia.org containing a list of various relationships between all categories in the English wikipedia. 
+article_categories_en.nt is a text file from dbpedia.org with simple processing by me that contains a list of articles with their categories. 
+
+WARNING: Because they operate on large files, many of these programs take a lot of execution time (3-5 minutes on a fast server). Some load ~1-2GB text 
+files into memory. 
+
+RUN THE PROGRAMS IN THIS ORDER!!!
+
+skos_parser.sh:
+	- reads skos_categories_en.nt
+	- generates categories_parsed.txt [the skos file with a lot of fluff removed]
+
+supercat_lookup_all_caching (a C++ program, compile with -std=c++11 -O2):
+	- reads categories_parsed.txt
+	- writes to stdout (you should redirect to CategoriesSupercats.txt)
+
+	- Gives the number of hops between each category and each of the 23 wikipedia top-level categories (I refer to these as supercats). Multiple breadth-first searches are used (one for each of the 23 categories) and a 24th one to print them all out. 
+
+article_categories_parser.sh
+	- reads article_categories_en.nt
+	- generates ArticleCategories.txt [lot of fluff removed]
+
+
+article_supercats (C++ program, compile with -std=c++11 -O2):
+	- reads ArticleCategories.txt and CategoriesSupercats.txt
+	- generates ArticlesSupercats.txt
+
+sort_articles_supercats.sh:
+	- reads and writes ArticlesSupercats.txt
+	- sorts that file using the order expected by lookup_article.pl
+
+lookup_article.pl:
+	- reads ArticlesSupercats.txt
+	- uses a fast binary search (dependent on the file previously having been sorted by sort_articles_supercats.sh) to lookup the desired article. 
+
+	- Usage: ./lookup_article.pl Anarchism
