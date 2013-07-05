@@ -185,7 +185,7 @@ int main(int argc, char ** argv) {
 	}
 
 	else {
-		cout << "Unable to open file!";
+		cout << "Unable to open CategoriesSupercats.txt!\n";
 		return 1;
 	}
 
@@ -193,7 +193,7 @@ int main(int argc, char ** argv) {
 	// Now we've loaded all the categories and their supercats hop lists into memory
 
 	// Perform lookups for each article
-	//infile.open("ArticleCategories.txt");
+	infile.open("ArticleCategories.txt");
 
 	if (infile.is_open()) {
 		//cout << "\tOpened ArticleCategories.txt...\n";
@@ -208,7 +208,7 @@ int main(int argc, char ** argv) {
 	}
 
 	else {
-		cout << "Unable to open file!";
+		cout << "Unable to open ArticleCategories.txt!\n";
 		return 1;
 	}
 }
