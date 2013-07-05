@@ -32,8 +32,13 @@ sort_articles_supercats.sh:
 	- reads and writes ArticlesSupercats.txt
 	- sorts that file using the order expected by lookup_article.pl
 
+wikicategories_pylookup/py_categorizer2.py:
+	- pass as arguments a query string: will query the Solr db on seine and search ArticlesSupercats.txt for relevant articles
+
 lookup_article.pl:
 	- reads ArticlesSupercats.txt
 	- uses a fast binary search (dependent on the file previously having been sorted by sort_articles_supercats.sh) to lookup the desired article. 
 
 	- Usage: ./lookup_article.pl Anarchism
+
+(perl_categorizer.pl: old version of py_categorizer2.py. Use that script instead.)
