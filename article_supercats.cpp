@@ -1,3 +1,19 @@
+/**
+	article_supercats.cpp
+	
+	Daniel Richman, June 2013
+
+	Reads CategoriesSupercats.txt and ArticleCategories.txt. 
+	For each article a, calculates S(a,t) for every t in topcats. 
+	This function is defined mathematically as the S(a,t) in Incarnation 2 of the Google Doc "Categorizing Text by Asking Wikipedia."
+
+	S(a,t) = 1 - sum(for c in C, d(c, t)) / sum(for t0 in T, sum(for c in C, d(c, t0)))
+
+	where A = set of all articles, C = set of all categories, T = set of all top categories (categories we're ultimately interested in. 
+
+*/
+
+
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -97,6 +113,8 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 	// This is a map, not an unordered_map, so the supercats are printed in alphabetical order
 	map<string, float> *supercats_map = new map<string, float>;
 
+	float total_score = 0; // will contain sum(for t0 in T, sum(for c in C, d(c, t0)))
+
 	// Iterate through all categories associated with this article
 	for (string cat : categories_list) {
 
@@ -111,9 +129,10 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 		// Iterate through each supercat mapping for this category
 		for (auto it = lookup_table[cat]->begin(); it != lookup_table[cat]->end(); it++) {
 
-
 			string supercat_name = it->first;
 			float supercat_weight = it->second;
+
+			total_score += supercat_weight; 
 
 			try {
 				supercats_map->at(supercat_name); // throws an exception if not present
@@ -131,10 +150,8 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 
 	cout << category << "> ";
 
-	int num_categories = categories_list.size();
-
 	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++) {
-		cout << it->first << ": " << it->second / num_categories << ", ";
+		cout << it->first << ": " << 1 - (it->second / total_score) << ", ";
 	}
 
 	cout << endl;
@@ -144,8 +161,8 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 
 int main(int argc, char ** argv) {
 	
-	cout << "article_supercats: generate supercat mapping for wikipedia articles\n";
-	cout << "\tReading from CategoriesSupercats.txt\n";
+	//cout << "article_supercats: generate supercat mapping for wikipedia articles\n";
+	//cout << "\tReading from CategoriesSupercats.txt\n";
 
 	category_map category_supercats;
 
@@ -154,8 +171,8 @@ int main(int argc, char ** argv) {
 	string line;
 
 	if (infile.is_open()) {
-		cout << "\tOpened file, building data structures...";
-		cout.flush();
+		//cout << "\tOpened file, building data structures...";
+		//cout.flush();
 		
 		while ( infile.good() ) {
 			getline(infile,line);
@@ -164,7 +181,7 @@ int main(int argc, char ** argv) {
 
 		infile.close();
 
-		cout << "done\n";
+		//cout << "done\n";
 	}
 
 	else {
@@ -176,11 +193,11 @@ int main(int argc, char ** argv) {
 	// Now we've loaded all the categories and their supercats hop lists into memory
 
 	// Perform lookups for each article
-	infile.open("ArticleCategories.txt");
+	//infile.open("ArticleCategories.txt");
 
 	if (infile.is_open()) {
-		cout << "\tOpened ArticleCategories.txt...\n";
-		cout.flush();
+		//cout << "\tOpened ArticleCategories.txt...\n";
+		//cout.flush();
 		
 		while ( infile.good() ) {
 			getline(infile,line);
