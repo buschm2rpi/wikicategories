@@ -41,8 +41,11 @@ struct node {
 	vector<node *> children;
 
 	visit_status vs = visit_status::WHITE; // used in the BFS
-	map<string, unsigned short> depths; // used in the BFS--depth of this node from each named category
+	map<string, short> depths; // used in the BFS--depth of this node from each named category
 };
+
+// Constant representing no connection from this cat to this topcat
+const short NO_CONNECTION = -1;
 
 
 // Split a string
@@ -93,7 +96,19 @@ void addline(const string &line, unordered_map<string, node *> &lookup_table) {
 }
 
 // Annotate each reachable node in the tree with the distance to each of the specified top nodes. 
-void tree_annotate(const string *topnodenames, const size_t number_of_topnodes, unordered_map<string, node *> &lookup_table) {
+void tree_annotate(const string &root_category_name, const string *topnodenames, const size_t number_of_topnodes, unordered_map<string, node *> &lookup_table) {
+
+	node *root_category;
+
+	// Check that the root category is valid
+	try {
+		root_category = lookup_table[root_category_name];
+	}
+
+	catch (out_of_range &) {
+		cerr << "Fatal error: could not look up root category " << root_category_name << " (probably a bad name)\n";			
+		return;
+	}
 
 	// For each of the children [these are categories like Arts, Culture, Computing, etc.], perform a breadth-first search from that child annotating *all* children as we go
 	
@@ -123,7 +138,7 @@ void tree_annotate(const string *topnodenames, const size_t number_of_topnodes, 
 		tovisit.push(main_category);
 		allvisited.push(main_category);
 
-		// Perform BFS. 
+		// Perform BFS, starting from this topcat. 
 		while (!tovisit.empty()) {
 			node *nextnode = tovisit.front();
 			tovisit.pop();
@@ -140,6 +155,34 @@ void tree_annotate(const string *topnodenames, const size_t number_of_topnodes, 
 
 			nextnode->vs = visit_status::BLACK;
 			allvisited.push(nextnode);
+		}
+
+		// Perform BFS from the root cat to annotate all categories that *weren't* connected to this topcat with a depth score of NO_CONNECTION
+		if (root_category->vs == visit_status::WHITE) {
+			// root category hasn't already been visited, which means this search is necessary
+
+			root_category->vs = visit_status::GRAY;
+			
+			tovisit.push(root_category);
+			allvisited.push(root_category);
+
+			while (!tovisit.empty()) {
+				node *nextnode = tovisit.front();
+				tovisit.pop();
+
+				for (node *child : nextnode->children) {
+
+					if (child->vs == visit_status::WHITE) {
+						child->vs = visit_status::GRAY;
+						child->depths[main_category_name] = NO_CONNECTION;
+			
+						tovisit.push(child);
+					}
+				}
+
+				nextnode->vs = visit_status::BLACK;
+				allvisited.push(nextnode);
+			}
 		}
 
 		// Reset all colors from BFS. Depths do not need to be reset. 
@@ -175,7 +218,7 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 	tovisit.push(top);
 	allvisited.push(top);
 
-	// Perform BFS. 
+	// Perform BFS to visit all articles accessible from the rootcat. 
 	while (!tovisit.empty()) {
 		node *nextnode = tovisit.front();
 		tovisit.pop();
@@ -191,10 +234,49 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 
 		nextnode->vs = visit_status::BLACK;
 
+		// Print out the supercat scores vector for this category
 		cout << nextnode->name << "> ";
 
-		for (auto it = nextnode->depths.cbegin(); it != nextnode->depths.cend(); it++)
-			cout << it->first << ": " << it->second << ", ";
+		/** Calculate the supercat scores for this category. 
+		  * The formula is 1 - (depth_for_this_supercat / sum(depths_of_all_supercats))
+		  *
+          * We consider supercats that have no connection to this cat to have a depth equal to the largest depth of any supercat with a depth. 
+		  */
+
+
+		// Determine sum of all supercat depths
+		int total_depths = 0;
+		int maximum_depth = 0;
+		int no_connections_count = 0;
+
+		for (auto it = nextnode->depths.cbegin(); it != nextnode->depths.cend(); it++) {
+			short d = it->second;
+			
+			if (d == NO_CONNECTION)
+				no_connections_count++;
+			else {
+				total_depths += d;
+				
+				if (d > maximum_depth)
+					maximum_depth = d;
+			}
+		}
+
+		total_depths += no_connections_count * maximum_depth;				
+
+		// Print out each score
+		for (auto it = nextnode->depths.cbegin(); it != nextnode->depths.cend(); it++) {
+			short d = it->second;
+
+			cout << it->first << ": ";
+			
+			if (d == NO_CONNECTION)
+				cout << 0;
+			else
+				cout << 1 - (((float) d) / total_depths);
+
+			cout << ", ";
+		}
 
 		cout << endl;
 
@@ -210,30 +292,6 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 	}
 }
 
-/*
-// Each parameter is a map that maps a name to a value. 
-// If a key is present in both maps, summaps sets v1[key] to be the sum of both maps' value for that key. 
-// Keys present in only one map are copied to v1. 
-void summaps(map<string, unsigned short> &v1, map<string, unsigned short> &v2) {
-	
-	// Iterate through keys in v1 and look for matching keys in v2. 
-	for (auto &currpair : v1) {
-		string name = currpair.first;
-
-		try {
-			// Add v2's value to v1's value, if v2 has this value. Then delete the key in v2. 
-			currpair.second += v2[name];
-			v2.erase(name);
-		}
-
-		// Ignore errors. 
-		catch (out_of_range&) {}
-	}
-
-	// Move all remaining keys in v2 to v1 since they weren't present in v1. 
-	v1.insert(v2.cbegin(), v2.cend());
-}
-*/
 
 int main(int argc, char ** argv) {
 	
@@ -267,7 +325,7 @@ int main(int argc, char ** argv) {
 
 	// Data loaded, perform BFS annotation
 	cerr << "Performing tree annotation for all categories...\n";
-	tree_annotate(top_categories, sizeof top_categories / sizeof(string), lookup_table);
+	tree_annotate(root_category, top_categories, sizeof top_categories / sizeof(string), lookup_table);
 
 	// Output all categories and their annotated values
 	tree_dump_annotations(root_category, lookup_table);
