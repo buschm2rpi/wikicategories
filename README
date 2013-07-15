@@ -13,7 +13,7 @@ skos_parser.sh:
 	- reads skos_categories_en.nt
 	- generates categories_parsed.txt [the skos file with a lot of fluff removed]
 
-supercat_lookup_all_caching (a C++ program, compile with -std=c++11 -O2):
+categories_supercats_scores (a C++ program, compile with -std=c++11 -O2):
 	- reads categories_parsed.txt
 	- writes to stdout (you should redirect to CategoriesSupercats.txt)
 

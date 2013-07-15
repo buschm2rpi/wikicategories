@@ -1,15 +1,15 @@
 /**
 	article_supercats.cpp
 	
-	Daniel Richman, June 2013
+	Daniel Richman, June/July 2013
 
 	Reads CategoriesSupercats.txt and ArticleCategories.txt. 
 	For each article a, calculates S(a,t) for every t in topcats. 
-	This function is defined mathematically as the S(a,t) in Incarnation 2 of the Google Doc "Categorizing Text by Asking Wikipedia."
+	This function is defined mathematically as the S(a,t) in Incarnation 3 of the Google Doc "Categorizing Text by Asking Wikipedia."
 
-	S(a,t) = 1 - sum(for c in C, d(c, t)) / sum(for t0 in T, sum(for c in C, d(c, t0)))
+	S(a,t) = max(S(n, t) for n in N) / sum(for t0 in T, max S(n, t) for n in N)
 
-	where A = set of all articles, C = set of all categories, T = set of all top categories (categories we're ultimately interested in. 
+	where a = an article, N = set of the article's categories, T = set of all top categories (categories we're ultimately interested in). 
 
 */
 
@@ -58,7 +58,8 @@ Agriculture: 15, Arts: 8, Belief: 4, Business: 6, Chronology: 5, Culture: 2, Edu
 		return;
 	}
 
-	unordered_map<string, float> *supercats_map = new unordered_map<string, float>;
+	// Read all the S(n, t) for the n (the category) in this line. 
+	unordered_map<string, float> *supercats_map = new unordered_map<string, float>; // supercat scores for this cat
 
 	for (string supercat : supercats_list) {
 		size_t colon_loc = supercat.find(':');
@@ -71,29 +72,22 @@ Agriculture: 15, Arts: 8, Belief: 4, Business: 6, Chronology: 5, Culture: 2, Edu
 		size_t whitespace = supercat_name.find_first_not_of(' ');
 
 		if (whitespace != string::npos)
-			supercat_name = supercat_name.substr(whitespace); // remove any peading whitespace
+			supercat_name = supercat_name.substr(whitespace); // remove any leading whitespace
 
-		// In the file, it's an integer. We need to use a flot because we end up normalizing it
+		// In the file, it's an integer. We need to use a float because we end up normalizing it
 		float supercat_value = (float) atoi(supercat.substr(colon_loc + 1).c_str());
 
 		(*supercats_map)[supercat_name] = supercat_value;
 	}
 
-	// Normalize all the distances. 
-	int distances_sum = 0;
-	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++)
-		distances_sum += it->second;
-
-	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++)
-		it->second = (it->second / (float) distances_sum);
-
+	// Store the supercats map for this category in the lookup table. 
 	lookup_table[category] = supercats_map;
 }
 
 // Look at a line representing all the categories to which an article belongs and compute the article's relationship to each top cat
 void search_article_line(const string &line, category_map &lookup_table) {
-	size_t space_loc = line.find('>'); // find the >, separator between name and valus
-	string category = line.substr(0, space_loc); // "Anarchism"
+	size_t space_loc = line.find('>'); // find the >, separator between name and values
+	string article = line.substr(0, space_loc); // "Anarchy"
 	string categories = line.substr(space_loc + 1);
 
 	/* categories will look like this:
@@ -110,10 +104,8 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 		return;
 	}
 
-	// This is a map, not an unordered_map, so the supercats are printed in alphabetical order
+	// This is a map, not an unordered_map, so that we get the supercats printed in alphabetical order
 	map<string, float> *supercats_map = new map<string, float>;
-
-	float total_score = 0; // will contain sum(for t0 in T, sum(for c in C, d(c, t0)))
 
 	// Iterate through all categories associated with this article
 	for (string cat : categories_list) {
@@ -130,28 +122,37 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 		for (auto it = lookup_table[cat]->begin(); it != lookup_table[cat]->end(); it++) {
 
 			string supercat_name = it->first;
-			float supercat_weight = it->second;
-
-			total_score += supercat_weight; 
+			float supercat_score = it->second;
 
 			try {
 				supercats_map->at(supercat_name); // throws an exception if not present
 
-				// No exception thrown here, so the supercat was already present. Add the current weight to it
-				(*supercats_map)[supercat_name] += supercat_weight;
+				// No exception thrown here, so the supercat was already present. Compare the current score to the one already there to see which is better. 
+
+				float previous_supercat_score = (*supercats_map)[supercat_name];
+
+				if (supercat_score > previous_supercat_score)
+					// S(a, t) will be higher for this t if we use the S(n, t) for *this* n rather than the one previously stored. 
+					(*supercats_map)[supercat_name] = supercat_score;
 			}
 			
 			catch (out_of_range &) {
 				// Supercat not previously present. Set it. 
-				(*supercats_map)[supercat_name] = supercat_weight;
+				(*supercats_map)[supercat_name] = supercat_score;
 			}
 		}
 	}
 
-	cout << category << "> ";
+
+	float total_score = 0; // will contain sum(for t0 in T, max S(n, t) for n in N)
+
+	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++)
+		total_score += it->second; // add on each of the preliminary scores for all the supercats for this article. 
+
+	cout << article << "> "; // print article name
 
 	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++) {
-		cout << it->first << ": " << 1 - (it->second / total_score) << ", ";
+		cout << it->first << ": " << (it->second / total_score) << ", "; // print the final score between this article and each topcat
 	}
 
 	cout << endl;
