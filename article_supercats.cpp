@@ -75,7 +75,7 @@ Agriculture: 15, Arts: 8, Belief: 4, Business: 6, Chronology: 5, Culture: 2, Edu
 			supercat_name = supercat_name.substr(whitespace); // remove any leading whitespace
 
 		// In the file, it's an integer. We need to use a float because we end up normalizing it
-		float supercat_value = (float) atoi(supercat.substr(colon_loc + 1).c_str());
+		float supercat_value = atof(supercat.substr(colon_loc + 1).c_str());
 
 		(*supercats_map)[supercat_name] = supercat_value;
 	}
