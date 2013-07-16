@@ -172,9 +172,8 @@ int main(int argc, char ** argv) {
 	string line;
 
 	if (infile.is_open()) {
-		//cout << "\tOpened file, building data structures...";
-		//cout.flush();
-		
+		cerr << "\tOpened file, building data structures...";
+
 		while ( infile.good() ) {
 			getline(infile,line);
 			add_category_line(line, category_supercats);
@@ -182,11 +181,11 @@ int main(int argc, char ** argv) {
 
 		infile.close();
 
-		//cout << "done\n";
+		cerr << "done\n";
 	}
 
 	else {
-		cout << "Unable to open CategoriesSupercats.txt!\n";
+		cerr << "Unable to open CategoriesSupercats.txt!\n";
 		return 1;
 	}
 
@@ -196,20 +195,26 @@ int main(int argc, char ** argv) {
 	// Perform lookups for each article
 	infile.open("ArticleCategories.txt");
 
+	unsigned long lines_read = 0;
+
 	if (infile.is_open()) {
-		//cout << "\tOpened ArticleCategories.txt...\n";
-		//cout.flush();
+		cerr << "\tOpened ArticleCategories.txt...\n";
 		
 		while ( infile.good() ) {
 			getline(infile,line);
 			search_article_line(line, category_supercats);
+
+			lines_read++;
+
+			if (lines_read % 100000 == 0)
+				cerr << lines_read << " lines processed\n";
 		}
 
 		infile.close();
 	}
 
 	else {
-		cout << "Unable to open ArticleCategories.txt!\n";
+		cerr << "Unable to open ArticleCategories.txt!\n";
 		return 1;
 	}
 }

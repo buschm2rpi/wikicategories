@@ -271,7 +271,7 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 			cout << it->first << ": ";
 			
 			if (d == NO_CONNECTION)
-				cout << 0;
+				cout << 1 - (((float) maximum_depth) / total_depths); // if a category had no connection, give it the worst score any other category is getting. This makes sense because in many cases such categories have nothing to do with the topic at hand. It's much more even than giving this cat a score of 0. 
 			else
 				cout << 1 - (((float) d) / total_depths);
 
