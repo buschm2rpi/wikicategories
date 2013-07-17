@@ -86,7 +86,7 @@ def parse_line(string):
 	article["name"] = string.split(">")[0]
 	article["supercats"] = {}
 
-	supercat_mappings = string.split(">")[1].split(", ")
+	supercat_mappings = string.split("> ")[1].split(", ")
 
 	for m in supercat_mappings:
 		if len(m) > 5: # a legitimate supercat
