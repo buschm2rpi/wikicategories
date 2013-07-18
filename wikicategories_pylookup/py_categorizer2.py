@@ -100,8 +100,11 @@ def parse_line(string):
 # Begin processing input
 
 query = {} # the dictionary we'll eventually print out
-query["tweet_id"] = int(sys.argv[1])
-query["text"] = " ".join(sys.argv[2:])
+
+argument_string = " ".join(sys.argv[1:])
+
+query["tweet_id"] = int(argument_string.split()[0])
+query["text"] = " ".join(argument_string.split()[1:])
 
 solr_query_string = query["text"]
 
