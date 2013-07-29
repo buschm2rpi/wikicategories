@@ -103,7 +103,7 @@ query = {} # the dictionary we'll eventually print out
 
 argument_string = " ".join(sys.argv[1:])
 
-query["tweet_id"] = int(argument_string.split()[0])
+query["tweet_id"] = argument_string.split()[0]
 query["text"] = " ".join(argument_string.split()[1:])
 
 solr_query_string = query["text"]
