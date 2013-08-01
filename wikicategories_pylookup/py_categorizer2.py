@@ -1,5 +1,6 @@
 # py_categorizer2.py
 # replaces pl_categorizer.pl
+# see README in parent directory
 
 # Daniel Richman, July 2013
 

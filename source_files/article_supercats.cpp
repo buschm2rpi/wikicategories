@@ -11,9 +11,11 @@
 
 	where a = an article, N = set of the article's categories, T = set of all top categories (categories we're ultimately interested in). 
 
+	We produce a semicolon-separated file (parse as CSV, but it's really SSV) because no Wikipedia category names include a ;.
+
 */
 
-
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -84,6 +86,27 @@ Agriculture: 15, Arts: 8, Belief: 4, Business: 6, Chronology: 5, Culture: 2, Edu
 	lookup_table[category] = supercats_map;
 }
 
+
+// Print CSV output header row
+void print_csv_header(category_map &lookup_table) {
+	cout << "Article;";
+
+	const string supercats_lookup_category = "Sports"; // we look up this category in the lookup table and print all its supercats in alphabetical order--should be the same as all other categories' supercats
+
+	unordered_map<string, float> * supercats_map = lookup_table.at(supercats_lookup_category);
+	vector<string> supercats_list;
+
+	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++)
+		supercats_list.push_back(it->first); // here we only care about the name, not the score
+
+	sort(supercats_list.begin(), supercats_list.end());
+
+	for (string supercat_name : supercats_list)
+		cout << supercat_name << ";";
+
+	cout << endl;
+}
+
 // Look at a line representing all the categories to which an article belongs and compute the article's relationship to each top cat
 void search_article_line(const string &line, category_map &lookup_table) {
 	size_t space_loc = line.find('>'); // find the >, separator between name and values
@@ -149,10 +172,10 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++)
 		total_score += it->second; // add on each of the preliminary scores for all the supercats for this article. 
 
-	cout << article << "> "; // print article name
+	cout << article << ";"; // print article name
 
 	for (auto it = supercats_map->begin(); it != supercats_map->end(); it++) {
-		cout << it->first << ": " << (it->second / total_score) << ", "; // print the final score between this article and each topcat
+		cout << (it->second / total_score) << ";"; // print the final score between this article and each topcat
 	}
 
 	cout << endl;
@@ -199,6 +222,8 @@ int main(int argc, char ** argv) {
 
 	if (infile.is_open()) {
 		cerr << "\tOpened ArticleCategories.txt...\n";
+
+		print_csv_header(category_supercats);
 		
 		while ( infile.good() ) {
 			getline(infile,line);
