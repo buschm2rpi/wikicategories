@@ -10,15 +10,17 @@
 
 	Written June-August 2013 by Daniel Richman. 
 
-	Note: This program requires C++11 support. Compile with -std=c++11. 
+	Note: This program requires C++11 language and library support. Compile with -std=c++11. On Macs (clang++) also use -stdlib=libc++. 
 ***************/
 
 #include <algorithm>
+#include <functional>
 #include <future>
 #include <fstream>
 #include <iostream>
 #include <list>
 #include <map>
+#include <mutex>
 #include <queue>
 #include <sstream>
 #include <stdexcept>
@@ -28,31 +30,36 @@
 
 using namespace std;
 
-// Used in the BFS
-const string root_category = "Main_topic_classifications"; // category from which we perform a BFS to visit *all* articles
-
-// the supercats we're interested in. 
-const string top_categories[] {"Mathematics", "Language", "Chronology", "Belief", "Environment",
-"Education", "Law", "Geography", "History", "Health", "People", "Nature", "Science", "Technology",
-"Sports", "Business", "Arts", "Life", "Politics"};
-
-enum class visit_status : char { WHITE, GRAY, BLACK };
 
 // Represents a single category
 struct node {
 	string name;
 	vector<node *> parents;
 	vector<node *> children;
-	
-	visit_status vs = visit_status::WHITE;
 
-	// Map from a node name to a probability that a random walker from this node would be at that node at whatever timestep the algorithm is currently on. 
-	// This an unordered_map in each node, rather than as a single float in each node, to allow multiple random walks to run simultaneously in separate threads. 
-	unordered_map<string, float> * random_walk_connections;
+	bool bfs_visited = false;
 };
 
-// Constant representing no connection from this cat to this topcat
-const short NO_CONNECTION = -1;
+
+// Used in the BFS
+const string root_category = "Main_topic_classifications"; // category from which we perform a BFS to visit *all* articles
+
+queue<node *> random_walk_queue;
+
+
+// the supercats we're interested in. 
+const string top_categories[] {"Mathematics", "Language", "Chronology", "Belief", "Environment",
+"Education", "Law", "Geography", "History", "Health", "People", "Nature", "Science", "Technology",
+"Sports", "Business", "Arts", "Life", "Politics"};
+
+
+// Synchronizers! 
+mutex cout_lock; // locks writing to cout
+mutex task_reassign_lock; // locks managing the queue of random walks to be performed
+
+unsigned threads_working = 0;
+const unsigned MAX_THREADS = 16;
+
 
 // Count # of neighbors of a given node
 int count_neighbors_of(node *n) {
@@ -84,7 +91,6 @@ node *get_or_add_node(const string &name, unordered_map<string, node *> &lookup_
 		// subcat not in the lookup table: make a new node
 		n = new node;
 		n->name = name;
-		n->random_walk_connections = nullptr;
 
 		lookup_table[name] = n;
 	}
@@ -107,12 +113,18 @@ void addline(const string &line, unordered_map<string, node *> &lookup_table) {
 	subcat->parents.push_back(supercat);
 }
 
+// Prototype
+void print_random_walk_output(const string &category, const unordered_map<string, float> &scores);
+void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table);
+
 // Perform Random Walk with Restart, beginning at the specified node in the tree. 
 void random_walk(const string &start_node_name, // node at which to begin
-				unordered_map<string, node *> &lookup_table,
-				float alpha = 0.01, // probability of returning to the top node at any given step)
-				float walk_iterations = 10) // number of random walk iterations performed
+				unordered_map<string, node *> &lookup_table)
 {
+
+	float alpha = 0.01; // probability of returning to the top node at any given step)
+	float walk_iterations = 10; // number of random walk iterations performed
+
 	node *start_node;
 
 	// Check that the start category is valid
@@ -148,7 +160,6 @@ void random_walk(const string &start_node_name, // node at which to begin
 	// Perform, walk_iterations times,
 	// a breadth-first-search step followed by a random walker recomputation step
 	for (int j = 0; j < walk_iterations; j++) {
-		cout << j << endl;
 
 		// Perform one layer of BFS.  
 		while (!tovisit_now->empty()) {
@@ -184,8 +195,6 @@ void random_walk(const string &start_node_name, // node at which to begin
 		tovisit_now = tovisit_next;
 		tovisit_next = tmp;
 		
-		cout << "\tBFS done\n";
-
 		// Perform random walk calculations on all nodes in allvisited, since these are the nodes the random walker might have visited by this timestamp
 		for (node *n : *allvisited) {
 
@@ -234,93 +243,105 @@ void random_walk(const string &start_node_name, // node at which to begin
 	
 	
 	// Reached the end of the random walk iterations. Save the data we're interested in. 
-	start_node->random_walk_connections = new unordered_map<string, float>;
+	unordered_map<string, float> random_walk_connections;
 	
-	// Iterate through all the categories we're interested in and save their state
+	// Iterate through all the categories we're interested in and print out their 
 	for (string cat : top_categories) {
-		(*(start_node->random_walk_connections))[cat] = (*rw_probabilities_last)[cat];
+		try {
+			random_walk_connections[cat] = rw_probabilities_last->at(cat);
+		} catch (out_of_range &) {
+			// specified supercat not reached in the random walk
+			random_walk_connections[cat] = 0;
+		}
 	}
-	
+
+	// Print data
+	print_random_walk_output(start_node_name, random_walk_connections);
+
+	// Inform dispatcher another thread can be created
+	reassign_annotation_tasks(lookup_table);
 
 	// Clean up. 
+	delete tovisit_now;
+	delete tovisit_next;
+	delete allvisited;
+	delete visit_statuses;
+
 	delete rw_probabilities_last;
 	delete rw_probabilities_current;
 }
 
 
-// Manage execution of random_walk calls. 
-void perform_all_annotations(unordered_map<string, node *> &lookup_table) {
-	
-	//int concurrent_tasks = 16; // 8 cpus * 2 (for hyper-threading)
-	
-	unsigned tasks_completed = 0;
-	
-	string cats[] = {"American_Roman_Catholics", "Basketball_players_from_Pennsylvania"};
-	
-	for (string c : cats) {
-		random_walk(c, lookup_table);
-		
-		tasks_completed++;
-		
-		if (tasks_completed > 2)
-			break;
+// Print out the supercat scores vector for this category
+void print_random_walk_output(const string &category, const unordered_map<string, float> &scores) {
+
+	lock_guard<mutex> lock(cout_lock);
+
+	cout << category << "> ";
+
+	// Print out each score
+	for (auto it = scores.cbegin(); it != scores.cend(); it++) {
+
+		cout << it->first << ": " << it->second << ", ";
 	}
+
+	cout << endl;
 }
 
 
-// Writes all tree information to stdout. 
-void tree_dump_annotations(const string &topnodename, unordered_map<string, node *> &lookup_table) {
-
+// Manage execution of random_walk calls. 
+void begin_annotating(unordered_map<string, node *> &lookup_table) {
+	
+	
 	// Find the top node
 	node *top;
 
 	try {
-		top = lookup_table.at(topnodename);
+		top = lookup_table.at(root_category);
 	}
 
-	catch (out_of_range&) { return; }
+	catch (out_of_range&) {
+		cerr << "Error: invalid top node in begin_annotating line 298\n";
+		return;
+	}
 
-	// Perform a BFS writing all node information to stdout. 
-	queue<node *> tovisit;
+	// Begin the BFS (we search in this way through all the nodes in the tree)
+	random_walk_queue.push(top);
+	top->bfs_visited = true;
 
-	// We don't update distances in this search, just print them
-	top->vs = visit_status::GRAY;
+	threads_working++;
 
-	tovisit.push(top);
+	async(launch::async, random_walk, ref(top->name), ref(lookup_table));
+}
 
-	// Perform BFS to visit all articles accessible from the rootcat. 
-	while (!tovisit.empty()) {
-		node *nextnode = tovisit.front();
-		tovisit.pop();
+// Called by a random walker task right before it finishes to suggest that another thread be allocated. 
+// This makes a poor man's thread pool. 
+void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table) {
+	lock_guard<mutex> lock(task_reassign_lock); // mutex will be unlocked when this function exits
+
+	threads_working--; // we were called by a current thread about to stop	
+
+	// Perform BFS to visit all articles accessible from the rootcat.
+	while (!random_walk_queue.empty() && threads_working < MAX_THREADS) {
+		node *nextnode = random_walk_queue.front();
+		random_walk_queue.pop();
 
 		for (node *child : nextnode->children) {
 
-			if (child->vs == visit_status::WHITE) {
-				child->vs = visit_status::GRAY;
-		
-				tovisit.push(child);
+			if (child->bfs_visited == false) {
+				child->bfs_visited = true;
+
+				random_walk_queue.push(child);
 			}
 		}
 
-		nextnode->vs = visit_status::BLACK;
-
-		if (nextnode->random_walk_connections != nullptr) {
-
-			// Print out the supercat scores vector for this category
-			cout << nextnode->name << "> ";
-
-			// Print out each score
-			for (auto it = nextnode->random_walk_connections->cbegin(); it != nextnode->random_walk_connections->cend(); it++) {
-
-				cout << it->first << ": " << it->second << ", ";
-			}
-
-			cout << endl;
-		}
+		threads_working++;
+		async(launch::async, random_walk, ref(nextnode->name), ref(lookup_table));
 	}
 }
 
 
+// main
 int main(int argc, char ** argv) {
 	
 	cerr << "categories_supercats_relationship_mapper: generate scores mapping each category to each top category\n";
@@ -351,11 +372,8 @@ int main(int argc, char ** argv) {
 	}
 
 
-	// Data loaded, perform BFS annotation
-	cerr << "Performing tree annotation for all categories...\n";
-	perform_all_annotations(lookup_table);
-
-	// Output all categories and their annotated values
-	tree_dump_annotations(root_category, lookup_table);
+	// Data loaded, perform random walks
+	cerr << "Performing random walks for all categories...\n";
+	begin_annotating(lookup_table);
 }
 
