@@ -1,21 +1,24 @@
-/**************** supercat_lookup_all_caching.cpp
+/**************** categories_supercats_scores.cpp
 	Reads a file listing wikipedia categories and their parents.
 	Then reads a second file listing all Wikipedia articles and their immediate categories. 
 	Generates a file representing the strength of the relationship between each article and each of the 25 or so supercategories. 
-	
+
+	Algorithm: random walk with restart. The heavy time and memory requirements of this algorithm mean that multiple threads are used. 
+
 	Data structure: an unordered_map maps category names to a node *. Each node contains the category name and
 	the name of the node's parents. 
 
-	Written June 2013 by Daniel Richman. 
+	Written June-August 2013 by Daniel Richman. 
 
 	Note: This program requires C++11 support. Compile with -std=c++11. 
 ***************/
 
-
+#include <algorithm>
+#include <future>
 #include <fstream>
 #include <iostream>
+#include <list>
 #include <map>
-#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -40,13 +43,18 @@ struct node {
 	vector<node *> parents;
 	vector<node *> children;
 
-	visit_status vs = visit_status::WHITE; // used in the BFS
-	map<string, short> depths; // used in the BFS--depth of this node from each named category
+	// Map from a node name to a probability that a random walker from this node would be at that node at whatever timestep the algorithm is currently on. 
+	// This an unordered_map in each node, rather than as a single float in each node, to allow multiple random walks to run simultaneously in separate threads. 
+	unordered_map<string, float> * random_walk_connections;
 };
 
 // Constant representing no connection from this cat to this topcat
 const short NO_CONNECTION = -1;
 
+// Count # of neighbors of a given node
+int count_neighbors_of(node *n) {
+	return n->parents.size() + n->children.size();
+}
 
 // Split a string
 vector<string> &split(const string &s, char delim, vector<string> &elems) {
@@ -95,104 +103,95 @@ void addline(const string &line, unordered_map<string, node *> &lookup_table) {
 	subcat->parents.push_back(supercat);
 }
 
-// Annotate each reachable node in the tree with the distance to each of the specified top nodes. 
-void tree_annotate(const string &root_category_name, const string *topnodenames, const size_t number_of_topnodes, unordered_map<string, node *> &lookup_table) {
+// Perform Random Walk with Restart, beginning at the specified node in the tree. 
+void random_walk(const string &start_node_name, // node at which to begin
+				const vector<string> &destination_nodes, // only random-walk values for these nodes are saved
+				unordered_map<string, node *> &lookup_table,
+				float alpha = 0.01, // probability of returning to the top node at any given step)
+				float walk_iterations = 100) // number of random walk iterations performed
+{
+	node *start_node;
 
-	node *root_category;
-
-	// Check that the root category is valid
+	// Check that the start category is valid
 	try {
-		root_category = lookup_table[root_category_name];
+		start_node = lookup_table[start_node_name];
 	}
 
 	catch (out_of_range &) {
-		cerr << "Fatal error: could not look up root category " << root_category_name << " (probably a bad name)\n";			
+		cerr << "Fatal error: could not look up category " << start_node_name << " (probably a bad name)\n";			
 		return;
 	}
 
-	// For each of the children [these are categories like Arts, Culture, Computing, etc.], perform a breadth-first search from that child annotating *all* children as we go
-	
-	for (size_t node_num = 0; node_num < number_of_topnodes; node_num++) {
+	// Allocate the unordered_map for this node
+	unordered_map<string, float> *rw_probabilities_last, *rw_probabilities_current;
 
-		string main_category_name = *(topnodenames + node_num);
-		node *main_category;
+	rw_probabilities_last = new unordered_map<string, float>;
+	rw_probabilities_current = new unordered_map<string, float>;
 
-		try {
-			main_category = lookup_table[main_category_name];
-		}
+	random_walk_connections[start_node_name] = 1; // At t = 0, there's 100% probability we're at the starting node. If a node is not in the unordered_map at time t, there is 0% probability the random walker is there at time t. 
 
-		catch (out_of_range &) {
-			cerr << "Could not look up category " << main_category_name << " in table, skipping\n";			
-			continue;
-		}
 
-		cerr << "\tAnnotating for category " << main_category_name << endl;
+	// Because there are so many nodes, we use a BFS to keep track of which nodes we must compute random-walker probability for. 
 
-		queue<node *> tovisit;
-		queue<node *> allvisited; // keeps track of all visited nodes so we can reset their colors for the next BFS
+	list<node *> tovisit_now, tovisit_next;
+	list<node *> allvisited; // keeps track of all visited nodes so we know which random-walker nodes we might have reached by this step
 
-		// Tell each child of the top node that its distance to itself is zero	
-		main_category->depths[main_category_name] = 0;
-		main_category->vs = visit_status::GRAY;
+	tovisit_now.push(start_node);
+	allvisited.push(start_node);
 
-		tovisit.push(main_category);
-		allvisited.push(main_category);
+	// Perform, walk_iterations times,
+	// a breadth-first-search step followed by a random walker recomputation step
+	for (int j = 0; j < walk_iterations; j++) {
 
-		// Perform BFS, starting from this topcat. 
-		while (!tovisit.empty()) {
-			node *nextnode = tovisit.front();
-			tovisit.pop();
+		// Perform one layer of BFS.  
+		while (!tovisit_now.empty()) {
+			node *nextnode = tovisit_now.front();
+			tovisit_now.pop_front();
 
+			// Visit all children and parents of this node. 
 			for (node *child : nextnode->children) {
 
-				if (child->vs == visit_status::WHITE) {
-					child->vs = visit_status::GRAY;
-					child->depths[main_category_name] = nextnode->depths[main_category_name] + 1;
-			
-					tovisit.push(child);
+				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
+				if (find(tovisit_now.cbegin(), tovisit_now.cend(), child) == tovisit_now.cend() &&
+					find(tovisit_next.cbegin(), tovisit_next.cend(), child) == tovisit_next.cend() &&
+					find(allvisited.cbegin(), allvisited.cend(), child) == allvisited.cend()) {
+
+					tovisit_next.push_back(child);
 				}
 			}
 
-			nextnode->vs = visit_status::BLACK;
-			allvisited.push(nextnode);
-		}
+			for (node *parent : nextnode->parents) {
 
-		// Perform BFS from the root cat to annotate all categories that *weren't* connected to this topcat with a depth score of NO_CONNECTION
-		if (root_category->vs == visit_status::WHITE) {
-			// root category hasn't already been visited, which means this search is necessary
+				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
+				if (find(tovisit_now.cbegin(), tovisit_now.cend(), child) == tovisit_now.cend() &&
+					find(tovisit_next.cbegin(), tovisit_next.cend(), child) == tovisit_next.cend() &&
+					find(allvisited.cbegin(), allvisited.cend(), child) == allvisited.cend()) {
 
-			root_category->vs = visit_status::GRAY;
-			
-			tovisit.push(root_category);
-			allvisited.push(root_category);
-
-			while (!tovisit.empty()) {
-				node *nextnode = tovisit.front();
-				tovisit.pop();
-
-				for (node *child : nextnode->children) {
-
-					if (child->vs == visit_status::WHITE) {
-						child->vs = visit_status::GRAY;
-						child->depths[main_category_name] = NO_CONNECTION;
-			
-						tovisit.push(child);
-					}
+					tovisit_next.push_back(child);
 				}
-
-				nextnode->vs = visit_status::BLACK;
-				allvisited.push(nextnode);
 			}
+
+			allvisited.push_back(nextnode);
 		}
 
-		// Reset all colors from BFS. Depths do not need to be reset. 
-		while (!allvisited.empty()) {
-			node *toreset = allvisited.front();
-			allvisited.pop();
+		// tovisit_now is now empty. Swap it and tovisit_next: on the next BFS cycle, we will visit all the nodes in what is currently tovisit_next. 
+		list<node *> tmp = tovisit_now;
+		tovisit_now = tovisit_next;
+		tovisit_next = tovisit_now;
 
-			toreset->vs = visit_status::WHITE;
+		
+
+		// Perform random walk calculations on all nodes in allvisited, since these are the nodes the random walker might have visited by this timestamp
+		for (node *n : allvisited) {
+
+			float probability = 0; // probability the random walker is at this node at the current timestep
+
+			for (node *
 		}
 	}
+
+	// Clean up. 
+	delete rw_probabilities_last, rw_probabilities_current;
 }
 
 
