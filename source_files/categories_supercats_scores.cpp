@@ -43,6 +43,8 @@ struct node {
 	string name;
 	vector<node *> parents;
 	vector<node *> children;
+	
+	visit_status vs = visit_status::WHITE;
 
 	// Map from a node name to a probability that a random walker from this node would be at that node at whatever timestep the algorithm is currently on. 
 	// This an unordered_map in each node, rather than as a single float in each node, to allow multiple random walks to run simultaneously in separate threads. 
@@ -106,7 +108,6 @@ void addline(const string &line, unordered_map<string, node *> &lookup_table) {
 
 // Perform Random Walk with Restart, beginning at the specified node in the tree. 
 void random_walk(const string &start_node_name, // node at which to begin
-				const vector<string> &destination_nodes, // only random-walk values for these nodes are saved
 				unordered_map<string, node *> &lookup_table,
 				float alpha = 0.01, // probability of returning to the top node at any given step)
 				float walk_iterations = 100) // number of random walk iterations performed
@@ -229,10 +230,36 @@ void random_walk(const string &start_node_name, // node at which to begin
 	}
 	
 	
+	// Reached the end of the random walk iterations. Save the data we're interested in. 
+	start_node->random_walk_connections = new unordered_map<string, float>;
+	
+	// Iterate through all the categories we're interested in and save their state
+	for (string cat : top_categories) {
+		(*(start_node->random_walk_connections))[cat] = (*rw_probabilities_last)[cat];
+	}
+	
 
 	// Clean up. 
 	delete rw_probabilities_last;
 	delete rw_probabilities_current;
+}
+
+
+// Manage execution of random_walk calls. 
+void perform_all_annotations(unordered_map<string, node *> &lookup_table) {
+	
+	//int concurrent_tasks = 16; // 8 cpus * 2 (for hyper-threading)
+	
+	unsigned tasks_completed = 0;
+	
+	for (auto it = lookup_table.begin(); it != lookup_table.end(); it++) {
+		random_walk(it->first, lookup_table);
+		
+		tasks_completed++;
+		
+		if (tasks_completed > 2)
+			break;
+	}
 }
 
 
@@ -250,13 +277,11 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 
 	// Perform a BFS writing all node information to stdout. 
 	queue<node *> tovisit;
-	queue<node *> allvisited; // keeps track of all visited nodes so we can reset their colors for the next BFS
 
 	// We don't update distances in this search, just print them
 	top->vs = visit_status::GRAY;
 
 	tovisit.push(top);
-	allvisited.push(top);
 
 	// Perform BFS to visit all articles accessible from the rootcat. 
 	while (!tovisit.empty()) {
@@ -274,61 +299,19 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 
 		nextnode->vs = visit_status::BLACK;
 
-		// Print out the supercat scores vector for this category
-		cout << nextnode->name << "> ";
+		if (nextnode->random_walk_connections != NULL) {
 
-		/** Calculate the supercat scores for this category. 
-		  * The formula is 1 - (depth_for_this_supercat / sum(depths_of_all_supercats))
-		  *
-          * We consider supercats that have no connection to this cat to have a depth equal to the largest depth of any supercat with a depth. 
-		  */
+			// Print out the supercat scores vector for this category
+			cout << nextnode->name << "> ";
 
+			// Print out each score
+			for (auto it = nextnode->random_walk_connections->cbegin(); it != nextnode->random_walk_connections->cend(); it++) {
 
-		// Determine sum of all supercat depths
-		int total_depths = 0;
-		int maximum_depth = 0;
-		int no_connections_count = 0;
-
-		for (auto it = nextnode->depths.cbegin(); it != nextnode->depths.cend(); it++) {
-			short d = it->second;
-			
-			if (d == NO_CONNECTION)
-				no_connections_count++;
-			else {
-				total_depths += d;
-				
-				if (d > maximum_depth)
-					maximum_depth = d;
+				cout << it->first << ": " << it->second << ", ";
 			}
+
+			cout << endl;
 		}
-
-		total_depths += no_connections_count * maximum_depth;				
-
-		// Print out each score
-		for (auto it = nextnode->depths.cbegin(); it != nextnode->depths.cend(); it++) {
-			short d = it->second;
-
-			cout << it->first << ": ";
-			
-			if (d == NO_CONNECTION)
-				cout << 1 - (((float) maximum_depth) / total_depths); // if a category had no connection, give it the worst score any other category is getting. This makes sense because in many cases such categories have nothing to do with the topic at hand. It's much more even than giving this cat a score of 0. 
-			else
-				cout << 1 - (((float) d) / total_depths);
-
-			cout << ", ";
-		}
-
-		cout << endl;
-
-		allvisited.push(nextnode);
-	}
-
-	// Reset all colors from BFS. Depths do not need to be reset. 
-	while (!allvisited.empty()) {
-		node *toreset = allvisited.front();
-		allvisited.pop();
-
-		toreset->vs = visit_status::WHITE;
 	}
 }
 
@@ -365,7 +348,7 @@ int main(int argc, char ** argv) {
 
 	// Data loaded, perform BFS annotation
 	cerr << "Performing tree annotation for all categories...\n";
-	tree_annotate(root_category, top_categories, sizeof top_categories / sizeof(string), lookup_table);
+	perform_all_annotations(lookup_table);
 
 	// Output all categories and their annotated values
 	tree_dump_annotations(root_category, lookup_table);
