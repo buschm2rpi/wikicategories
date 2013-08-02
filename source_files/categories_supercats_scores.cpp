@@ -19,6 +19,7 @@
 #include <iostream>
 #include <list>
 #include <map>
+#include <queue>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -128,7 +129,7 @@ void random_walk(const string &start_node_name, // node at which to begin
 	rw_probabilities_last = new unordered_map<string, float>;
 	rw_probabilities_current = new unordered_map<string, float>;
 
-	random_walk_connections[start_node_name] = 1; // At t = 0, there's 100% probability we're at the starting node. If a node is not in the unordered_map at time t, there is 0% probability the random walker is there at time t. 
+	(*rw_probabilities_last)[start_node_name] = 1; // At t = 0, there's 100% probability we're at the starting node. If a node is not in the unordered_map at time t, there is 0% probability the random walker is there at time t. 
 
 
 	// Because there are so many nodes, we use a BFS to keep track of which nodes we must compute random-walker probability for. 
@@ -136,8 +137,8 @@ void random_walk(const string &start_node_name, // node at which to begin
 	list<node *> tovisit_now, tovisit_next;
 	list<node *> allvisited; // keeps track of all visited nodes so we know which random-walker nodes we might have reached by this step
 
-	tovisit_now.push(start_node);
-	allvisited.push(start_node);
+	tovisit_now.push_back(start_node);
+	allvisited.push_back(start_node);
 
 	// Perform, walk_iterations times,
 	// a breadth-first-search step followed by a random walker recomputation step
@@ -163,11 +164,11 @@ void random_walk(const string &start_node_name, // node at which to begin
 			for (node *parent : nextnode->parents) {
 
 				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (find(tovisit_now.cbegin(), tovisit_now.cend(), child) == tovisit_now.cend() &&
-					find(tovisit_next.cbegin(), tovisit_next.cend(), child) == tovisit_next.cend() &&
-					find(allvisited.cbegin(), allvisited.cend(), child) == allvisited.cend()) {
+				if (find(tovisit_now.cbegin(), tovisit_now.cend(), parent) == tovisit_now.cend() &&
+					find(tovisit_next.cbegin(), tovisit_next.cend(), parent) == tovisit_next.cend() &&
+					find(allvisited.cbegin(), allvisited.cend(), parent) == allvisited.cend()) {
 
-					tovisit_next.push_back(child);
+					tovisit_next.push_back(parent);
 				}
 			}
 
@@ -186,12 +187,52 @@ void random_walk(const string &start_node_name, // node at which to begin
 
 			float probability = 0; // probability the random walker is at this node at the current timestep
 
-			for (node *
+			// For all parent nodes and children nodes of n, add up probabilities that we're now there. 
+			for (node *p : n->parents) {
+				try {
+					float parent_last_prob = rw_probabilities_last->at(p->name);
+					
+					probability += parent_last_prob / count_neighbors_of(p);
+				}
+				catch (out_of_range &) {
+					// this parent node wasn't in rw_probabilities_last, so there is no chance of reaching node n *from* node p
+				}
+			}
+			
+			for (node *c : n->children) {
+				try {
+					float child_last_prob = rw_probabilities_last->at(c->name);
+					
+					probability += child_last_prob / count_neighbors_of(c);
+				}
+				catch (out_of_range &) {
+					// this parent node wasn't in rw_probabilities_last, so there is no chance of reaching node n *from* node p
+				}
+			}
+			
+			// Make final adjustments to probability for n, given that we return randomly to the starting node. 
+			probability *= (1 - alpha);
+			
+			if (n == start_node) {
+				probability += alpha;
+			}
+			
+			(*rw_probabilities_current)[n->name] = probability;
 		}
+		
+		// Next cycle: rw_probabilities_current will become rw_probabilities_last and the old rw_probabilities_last will go away. 
+		unordered_map<string, float> * tmp2 = rw_probabilities_last;
+		tmp2->clear(); // now empty and suitable for reuse
+		
+		rw_probabilities_last = rw_probabilities_current; // save current state
+		rw_probabilities_current = tmp2; // empty
 	}
+	
+	
 
 	// Clean up. 
-	delete rw_probabilities_last, rw_probabilities_current;
+	delete rw_probabilities_last;
+	delete rw_probabilities_current;
 }
 
 
