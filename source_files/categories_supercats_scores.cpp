@@ -84,6 +84,7 @@ node *get_or_add_node(const string &name, unordered_map<string, node *> &lookup_
 		// subcat not in the lookup table: make a new node
 		n = new node;
 		n->name = name;
+		n->random_walk_connections = nullptr;
 
 		lookup_table[name] = n;
 	}
@@ -110,7 +111,7 @@ void addline(const string &line, unordered_map<string, node *> &lookup_table) {
 void random_walk(const string &start_node_name, // node at which to begin
 				unordered_map<string, node *> &lookup_table,
 				float alpha = 0.01, // probability of returning to the top node at any given step)
-				float walk_iterations = 100) // number of random walk iterations performed
+				float walk_iterations = 10) // number of random walk iterations performed
 {
 	node *start_node;
 
@@ -135,56 +136,58 @@ void random_walk(const string &start_node_name, // node at which to begin
 
 	// Because there are so many nodes, we use a BFS to keep track of which nodes we must compute random-walker probability for. 
 
-	list<node *> tovisit_now, tovisit_next;
-	list<node *> allvisited; // keeps track of all visited nodes so we know which random-walker nodes we might have reached by this step
+	list<node *> *tovisit_now = new list<node *>;
+	list<node *> *tovisit_next = new list<node *>;
+	list<node *> *allvisited = new list<node *>; // keeps track of all visited nodes so we know which random-walker nodes we might have reached by this step
+	
+	unordered_map<node *, bool> *visit_statuses = new unordered_map<node *, bool>;
 
-	tovisit_now.push_back(start_node);
-	allvisited.push_back(start_node);
+	tovisit_now->push_back(start_node);
+	allvisited->push_back(start_node);
 
 	// Perform, walk_iterations times,
 	// a breadth-first-search step followed by a random walker recomputation step
 	for (int j = 0; j < walk_iterations; j++) {
+		cout << j << endl;
 
 		// Perform one layer of BFS.  
-		while (!tovisit_now.empty()) {
-			node *nextnode = tovisit_now.front();
-			tovisit_now.pop_front();
+		while (!tovisit_now->empty()) {
+			node *nextnode = tovisit_now->front();
+			tovisit_now->pop_front();
 
 			// Visit all children and parents of this node. 
 			for (node *child : nextnode->children) {
 
 				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (find(tovisit_now.cbegin(), tovisit_now.cend(), child) == tovisit_now.cend() &&
-					find(tovisit_next.cbegin(), tovisit_next.cend(), child) == tovisit_next.cend() &&
-					find(allvisited.cbegin(), allvisited.cend(), child) == allvisited.cend()) {
+				if (visit_statuses->find(child) == visit_statuses->end()) {
 
-					tovisit_next.push_back(child);
+					tovisit_next->push_back(child);
+					(*visit_statuses)[child] = true;
 				}
 			}
 
 			for (node *parent : nextnode->parents) {
 
 				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (find(tovisit_now.cbegin(), tovisit_now.cend(), parent) == tovisit_now.cend() &&
-					find(tovisit_next.cbegin(), tovisit_next.cend(), parent) == tovisit_next.cend() &&
-					find(allvisited.cbegin(), allvisited.cend(), parent) == allvisited.cend()) {
+				if (visit_statuses->find(parent) == visit_statuses->end()) {
 
-					tovisit_next.push_back(parent);
+					tovisit_next->push_back(parent);
+					(*visit_statuses)[parent] = true;
 				}
 			}
 
-			allvisited.push_back(nextnode);
+			allvisited->push_back(nextnode);
 		}
 
 		// tovisit_now is now empty. Swap it and tovisit_next: on the next BFS cycle, we will visit all the nodes in what is currently tovisit_next. 
-		list<node *> tmp = tovisit_now;
+		list<node *> *tmp = tovisit_now;
 		tovisit_now = tovisit_next;
-		tovisit_next = tovisit_now;
-
+		tovisit_next = tmp;
 		
+		cout << "\tBFS done\n";
 
 		// Perform random walk calculations on all nodes in allvisited, since these are the nodes the random walker might have visited by this timestamp
-		for (node *n : allvisited) {
+		for (node *n : *allvisited) {
 
 			float probability = 0; // probability the random walker is at this node at the current timestep
 
@@ -252,8 +255,10 @@ void perform_all_annotations(unordered_map<string, node *> &lookup_table) {
 	
 	unsigned tasks_completed = 0;
 	
-	for (auto it = lookup_table.begin(); it != lookup_table.end(); it++) {
-		random_walk(it->first, lookup_table);
+	string cats[] = {"American_Roman_Catholics", "Basketball_players_from_Pennsylvania"};
+	
+	for (string c : cats) {
+		random_walk(c, lookup_table);
 		
 		tasks_completed++;
 		
@@ -299,7 +304,7 @@ void tree_dump_annotations(const string &topnodename, unordered_map<string, node
 
 		nextnode->vs = visit_status::BLACK;
 
-		if (nextnode->random_walk_connections != NULL) {
+		if (nextnode->random_walk_connections != nullptr) {
 
 			// Print out the supercat scores vector for this category
 			cout << nextnode->name << "> ";
