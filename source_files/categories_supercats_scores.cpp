@@ -14,8 +14,8 @@
 ***************/
 
 #include <algorithm>
+#include <chrono>
 #include <functional>
-#include <future>
 #include <fstream>
 #include <iostream>
 #include <list>
@@ -25,6 +25,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -58,7 +59,7 @@ mutex cout_lock; // locks writing to cout
 mutex task_reassign_lock; // locks managing the queue of random walks to be performed
 
 unsigned threads_working = 0;
-const unsigned MAX_THREADS = 16;
+const unsigned MAX_THREADS = 8;
 
 
 // Count # of neighbors of a given node
@@ -311,7 +312,7 @@ void begin_annotating(unordered_map<string, node *> &lookup_table) {
 
 	threads_working++;
 
-	async(launch::async, random_walk, ref(top->name), ref(lookup_table));
+	reassign_annotation_tasks(lookup_table);
 }
 
 // Called by a random walker task right before it finishes to suggest that another thread be allocated. 
@@ -336,7 +337,8 @@ void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table) {
 		}
 
 		threads_working++;
-		async(launch::async, random_walk, ref(nextnode->name), ref(lookup_table));
+		thread t(random_walk, ref(nextnode->name), ref(lookup_table));
+		t.detach();
 	}
 }
 
@@ -375,5 +377,18 @@ int main(int argc, char ** argv) {
 	// Data loaded, perform random walks
 	cerr << "Performing random walks for all categories...\n";
 	begin_annotating(lookup_table);
+
+	while (true) {
+		
+		task_reassign_lock.lock();
+		int tw = threads_working; // copy shared data
+		task_reassign_lock.unlock();		
+
+		if (tw != 0) {
+			this_thread::sleep_for(chrono::milliseconds(10));
+		}
+		else
+			break; // done random-walking
+	}
 }
 
