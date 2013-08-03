@@ -203,25 +203,30 @@ void random_walk(const string &start_node_name, // node at which to begin
 
 			// For all parent nodes and children nodes of n, add up probabilities that we're now there. 
 			for (node *p : n->parents) {
-				try {
-					float parent_last_prob = rw_probabilities_last->at(p->name);
+				
+				// Look up name in rw_probabilities_last to see whether we recorded a nonzero value. 
+				auto it = rw_probabilities_last->find(p->name);
+
+				// Not in hash table: we couldn't have been at p last iteration. 
+				if (it == rw_probabilities_last->end())
+					continue;
+
+				float parent_last_prob = it->second;
 					
-					probability += parent_last_prob / count_neighbors_of(p);
-				}
-				catch (out_of_range &) {
-					// this parent node wasn't in rw_probabilities_last, so there is no chance of reaching node n *from* node p
-				}
+				probability += parent_last_prob / count_neighbors_of(p);
 			}
 			
 			for (node *c : n->children) {
-				try {
-					float child_last_prob = rw_probabilities_last->at(c->name);
+				// Look up name in rw_probabilities_last to see whether we recorded a nonzero value. 
+				auto it = rw_probabilities_last->find(c->name);
+
+				// Not in hash table: we couldn't have been at c last iteration. 
+				if (it == rw_probabilities_last->end())
+					continue;
+
+				float child_last_prob = it->second;
 					
-					probability += child_last_prob / count_neighbors_of(c);
-				}
-				catch (out_of_range &) {
-					// this parent node wasn't in rw_probabilities_last, so there is no chance of reaching node n *from* node p
-				}
+				probability += child_last_prob / count_neighbors_of(c);
 			}
 			
 			// Make final adjustments to probability for n, given that we return randomly to the starting node. 
