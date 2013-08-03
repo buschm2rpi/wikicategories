@@ -27,6 +27,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace std;
@@ -153,7 +154,7 @@ void random_walk(const string &start_node_name, // node at which to begin
 	list<node *> *tovisit_next = new list<node *>;
 	list<node *> *allvisited = new list<node *>; // keeps track of all visited nodes so we know which random-walker nodes we might have reached by this step
 	
-	unordered_map<node *, bool> *visit_statuses = new unordered_map<node *, bool>;
+	unordered_set<node *> visited_set;
 
 	tovisit_now->push_back(start_node);
 	allvisited->push_back(start_node);
@@ -171,20 +172,20 @@ void random_walk(const string &start_node_name, // node at which to begin
 			for (node *child : nextnode->children) {
 
 				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (visit_statuses->find(child) == visit_statuses->end()) {
+				if (visited_set.find(child) == visited_set.end()) {
 
 					tovisit_next->push_back(child);
-					(*visit_statuses)[child] = true;
+					visited_set.insert(child);
 				}
 			}
 
 			for (node *parent : nextnode->parents) {
 
 				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (visit_statuses->find(parent) == visit_statuses->end()) {
+				if (visited_set.find(parent) == visited_set.end()) {
 
 					tovisit_next->push_back(parent);
-					(*visit_statuses)[parent] = true;
+					visited_set.insert(parent);
 				}
 			}
 
@@ -271,7 +272,6 @@ void random_walk(const string &start_node_name, // node at which to begin
 	delete tovisit_now;
 	delete tovisit_next;
 	delete allvisited;
-	delete visit_statuses;
 
 	delete rw_probabilities_last;
 	delete rw_probabilities_current;
