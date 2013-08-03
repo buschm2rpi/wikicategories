@@ -46,8 +46,7 @@ struct node {
 // Used in the BFS
 const string root_category = "Main_topic_classifications"; // category from which we perform a BFS to visit *all* articles
 
-queue<node *> random_walk_queue;
-
+ifstream *infile_global;
 
 // the supercats we're interested in. 
 const string top_categories[] {"Mathematics", "Language", "Chronology", "Belief", "Environment",
@@ -295,31 +294,6 @@ void print_random_walk_output(const string &category, const unordered_map<string
 }
 
 
-// Manage execution of random_walk calls. 
-void begin_annotating(unordered_map<string, node *> &lookup_table) {
-	
-	
-	// Find the top node
-	node *top;
-
-	try {
-		top = lookup_table.at(root_category);
-	}
-
-	catch (out_of_range&) {
-		cerr << "Error: invalid top node in begin_annotating line 298\n";
-		return;
-	}
-
-	// Begin the BFS (we search in this way through all the nodes in the tree)
-	random_walk_queue.push(top);
-	top->bfs_visited = true;
-
-	threads_working++;
-
-	reassign_annotation_tasks(lookup_table);
-}
-
 // Called by a random walker task right before it finishes to suggest that another thread be allocated. 
 // This makes a poor man's thread pool. 
 void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table) {
@@ -328,21 +302,12 @@ void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table) {
 	threads_working--; // we were called by a current thread about to stop	
 
 	// Perform BFS to visit all articles accessible from the rootcat.
-	while (!random_walk_queue.empty() && threads_working < MAX_THREADS) {
-		node *nextnode = random_walk_queue.front();
-		random_walk_queue.pop();
-
-		for (node *child : nextnode->children) {
-
-			if (child->bfs_visited == false) {
-				child->bfs_visited = true;
-
-				random_walk_queue.push(child);
-			}
-		}
+	while (infile_global->good() && threads_working < MAX_THREADS) {
+		string next_category;
+		getline(*infile_global, next_category);
 
 		threads_working++;
-		thread t(random_walk, ref(nextnode->name), ref(lookup_table));
+		thread t(random_walk, ref(next_category), ref(lookup_table));
 		t.detach();
 	}
 }
@@ -381,8 +346,16 @@ int main(int argc, char ** argv) {
 
 	// Data loaded, perform random walks
 	cerr << "Performing random walks for all categories...\n";
-	begin_annotating(lookup_table);
-
+	
+	infile.open("Categories_BFSOrder.txt");
+	
+	if (infile.good()) {
+		threads_working++;
+		infile_global = &infile;
+		reassign_annotation_tasks(lookup_table);
+	}
+	
+	
 	while (true) {
 		
 		task_reassign_lock.lock();
@@ -390,7 +363,7 @@ int main(int argc, char ** argv) {
 		task_reassign_lock.unlock();		
 
 		if (tw != 0) {
-			this_thread::sleep_for(chrono::milliseconds(10));
+			this_thread::sleep_for(chrono::milliseconds(50));
 		}
 		else
 			break; // done random-walking
