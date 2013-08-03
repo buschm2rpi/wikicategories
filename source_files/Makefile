@@ -1,5 +1,5 @@
 CPP=g++
-CPPFLAGS=-Wall -std=c++11 -march=native -O2
+CPPFLAGS=-Wall -std=c++11 -march=native -O3
 
 all: categories_supercats_scores article_supercats
 
