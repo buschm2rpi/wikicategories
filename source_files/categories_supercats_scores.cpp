@@ -38,8 +38,6 @@ struct node {
 	string name;
 	vector<node *> parents;
 	vector<node *> children;
-
-	bool bfs_visited = false;
 };
 
 
@@ -119,7 +117,9 @@ void print_random_walk_output(const string &category, const unordered_map<string
 void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table);
 
 // Perform Random Walk with Restart, beginning at the specified node in the tree. 
-void random_walk(const string &start_node_name, // node at which to begin
+// Note: start_node_name should not be declared as a reference because of the
+// loop in which it is created. 
+void random_walk(const string start_node_name, // node at which to begin
 				unordered_map<string, node *> &lookup_table)
 {
 
@@ -307,7 +307,7 @@ void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table) {
 		getline(*infile_global, next_category);
 
 		threads_working++;
-		thread t(random_walk, ref(next_category), ref(lookup_table));
+		thread t(random_walk, next_category, ref(lookup_table));
 		t.detach();
 	}
 }
