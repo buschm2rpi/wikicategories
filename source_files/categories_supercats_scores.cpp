@@ -151,9 +151,10 @@ void populate_graph_matrix(unordered_map<string, node*> &lookup_table, sp_fmat *
 
 	unsigned long current_category_id = 1;
 
-	for (auto it = lookup_table.cbegin(); it != lookup_table.cend(); it++) {
+	unsigned long categories_processed = 0; // just for debugging
 
-		unsigned long iteration_start_category_id = current_category_id;
+
+	for (auto it = lookup_table.cbegin(); it != lookup_table.cend(); it++) {
 
 		node *n = it->second;
 		int n_neighbors = count_neighbors_of(n);
@@ -183,8 +184,8 @@ void populate_graph_matrix(unordered_map<string, node*> &lookup_table, sp_fmat *
 		}
 
 
-		if ((iteration_start_category_id % 50000) > (current_category_id % 50000)) // passed a multiple of 50,000 in this iteration
-			cerr << "\tFinished category " << current_category_id << endl;
+		if (++categories_processed % 25000 == 0) // passed a multiple of 25,000 in this iteration
+			cerr << "\tFinished processing category " << categories_processed << endl;
 
 	}
 }
