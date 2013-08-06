@@ -188,7 +188,7 @@ void random_walk(const string start_node_name, // node at which to begin
 			sum += it->second;
 
 		if (fabs(sum - 1) > 0.001)
-			cerr << "Warning: rw_probabilities_current sums to " << sum << " at random walk iteration " < j << " for category " << start_node_name << ", should be 1 always\n";
+			cerr << "Warning: rw_probabilities_current sums to " << sum << " at random walk iteration " << j << " for category " << start_node_name << ", should be 1 always\n";
 
 		// Next cycle: rw_probabilities_current will become rw_probabilities_last and the old rw_probabilities_last will go away. 
 		unordered_map<string, float> * tmp2 = rw_probabilities_last;
