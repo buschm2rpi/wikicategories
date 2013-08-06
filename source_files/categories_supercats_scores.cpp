@@ -17,6 +17,7 @@
 #include <chrono>
 #include <functional>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <list>
 #include <map>
@@ -53,6 +54,7 @@ const string top_categories[] {"Mathematics", "Language", "Chronology", "Belief"
 
 
 // Synchronizers! 
+mutex cerr_lock; // in threaded sections, locks writing to cerr
 mutex cout_lock; // locks writing to cout
 mutex task_reassign_lock; // locks managing the queue of random walks to be performed
 
@@ -108,7 +110,7 @@ void addline(const string &line, unordered_map<string, node *> &lookup_table) {
 }
 
 // Prototype
-void print_random_walk_output(const string &category, const unordered_map<string, float> &scores);
+void print_random_walk_output(const string &category, const unordered_map<string, long double> &scores);
 void reassign_annotation_tasks(unordered_map<string, node *> &lookup_table);
 
 // Perform Random Walk with Restart, beginning at the specified node in the tree. 
@@ -118,8 +120,8 @@ void random_walk(const string start_node_name, // node at which to begin
 				unordered_map<string, node *> &lookup_table)
 {
 
-	float alpha = 0.01; // probability of returning to the top node at any given step)
-	float walk_iterations = 10; // number of random walk iterations performed
+	long double alpha = 0.01; // probability of returning to the top node at any given step)
+	long double walk_iterations = 10; // number of random walk iterations performed
 
 	node *start_node;
 
@@ -134,12 +136,14 @@ void random_walk(const string start_node_name, // node at which to begin
 	}
 
 	// Allocate the unordered_map for this node
-	unordered_map<string, float> *rw_probabilities_last, *rw_probabilities_current;
+	unordered_map<string, long double> *rw_probabilities_last, *rw_probabilities_current;
 
-	rw_probabilities_last = new unordered_map<string, float>;
-	rw_probabilities_current = new unordered_map<string, float>;
+	rw_probabilities_last = new unordered_map<string, long double>;
+	rw_probabilities_current = new unordered_map<string, long double>;
 
-	(*rw_probabilities_last)[start_node_name] = 1; // At t = 0, there's 100% probability we're at the starting node. If a node is not in the unordered_map at time t, there is 0% probability the random walker is there at time t. 
+	unordered_map<string, int> rw_counts;
+
+	(*rw_probabilities_last)[start_node_name] = 1.0; // At t = 0, there's 100% probability we're at the starting node. If a node is not in the unordered_map at time t, there is 0% probability the random walker is there at time t. 
 
 	// Perform, walk_iterations times,
 	// a breadth-first-search step followed by a random walker recomputation step
@@ -151,7 +155,7 @@ void random_walk(const string start_node_name, // node at which to begin
 
 			node *n = it->second; // current node we're considering in relation to the start_node
 
-			float probability = 0; // probability the random walker is at this node at the current timestep
+			long double probability = 0; // probability the random walker is at this node at the current timestep
 
 			// Iterate through all child nodes of n to determine the probability that we walked from c to n in this timestep. 
 			for (node *c : n->children) {
@@ -162,9 +166,15 @@ void random_walk(const string start_node_name, // node at which to begin
 					continue;
 				
 				// child was in rw_probabilities_last, so we might have been at the child last time, so we might be at the parent this time
-				float child_last_prob = child_mapping->second; // probability we were at the child last timestep
+				long double child_last_prob = child_mapping->second; // probability we were at the child last timestep
 				
 				probability += child_last_prob / c->parents.size(); // a walker at the child could have walked randomly to any of the child's parent nodes
+
+				auto child_cts = rw_counts.find(c->name);
+				if (child_cts == rw_counts.end())
+					rw_counts[c->name] = 1;
+				else
+					rw_counts[c->name] += 1;
 			}
 
 			// Check whether probability is nonzero. If it's zero, we can ignore this node as long as it's not the start node (to which there is always alpha probability of returning).
@@ -181,17 +191,31 @@ void random_walk(const string start_node_name, // node at which to begin
 			(*rw_probabilities_current)[n->name] = probability;
 		}
 
-		// Perform sanity check: allowing for floating-point error, rw_probabilities_current should add up to 1 since there's a 100% probability the walker will be in the graph
-		float sum = 0;
+		// Perform sanity check: allowing for long doubleing-point error, rw_probabilities_current should add up to 1 since there's a 100% probability the walker will be in the graph
+		long double sum = 0;
 		
 		for (auto it = rw_probabilities_current->begin(); it != rw_probabilities_current->end(); it++)
 			sum += it->second;
 
-		if (fabs(sum - 1) > 0.001)
-			cerr << "Warning: rw_probabilities_current sums to " << sum << " at random walk iteration " << j << " for category " << start_node_name << ", should be 1 always\n";
+		if (fabs(sum - 1) > 0.000001) {
+			lock_guard<mutex> lock(cerr_lock);
+			cerr << "Warning: RW probs sum to ";
+			fprintf(stderr, "%.5Lf", sum);
+			cerr << " at iteration " << j << " for cat " << start_node_name << endl;
+
+			for (auto it = rw_probabilities_current->begin(); it != rw_probabilities_current->end(); it++)
+				cerr << "\t" << it->first << ": " << it->second << endl;
+
+			for (auto it = rw_counts.begin(); it != rw_counts.end(); it++)
+				if (it->second != (lookup_table[it->first]->parents).size() || (lookup_table[it->first]->parents).size() == 0)
+					cerr << "\t\tWARNING: POSSIBLE UNWALKED PATH for cat " << it->first << ": " << it->second << " used of " << lookup_table[it->first]->parents.size() << endl;
+		}
+
+		// Clear rw_counts
+		rw_counts.clear();
 
 		// Next cycle: rw_probabilities_current will become rw_probabilities_last and the old rw_probabilities_last will go away. 
-		unordered_map<string, float> * tmp2 = rw_probabilities_last;
+		unordered_map<string, long double> * tmp2 = rw_probabilities_last;
 		tmp2->clear(); // now empty and suitable for reuse
 		
 		rw_probabilities_last = rw_probabilities_current; // save current state
@@ -200,7 +224,7 @@ void random_walk(const string start_node_name, // node at which to begin
 	
 	
 	// Reached the end of the random walk iterations. Save the data we're interested in. 
-	unordered_map<string, float> random_walk_connections;
+	unordered_map<string, long double> random_walk_connections;
 	
 	// Iterate through all the categories we're interested in and print out their 
 	for (string cat : top_categories) {
@@ -225,7 +249,7 @@ void random_walk(const string start_node_name, // node at which to begin
 
 
 // Print out the supercat scores vector for this category
-void print_random_walk_output(const string &category, const unordered_map<string, float> &scores) {
+void print_random_walk_output(const string &category, const unordered_map<string, long double> &scores) {
 
 	lock_guard<mutex> lock(cout_lock);
 
