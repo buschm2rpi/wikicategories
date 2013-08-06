@@ -187,8 +187,14 @@ void random_walk(const string start_node_name, // node at which to begin
 		for (auto it = rw_probabilities_current->begin(); it != rw_probabilities_current->end(); it++)
 			sum += it->second;
 
-		if (fabs(sum - 1) > 0.001)
-			cerr << "Warning: rw_probabilities_current sums to " << sum << " at random walk iteration " << j << " for category " << start_node_name << ", should be 1 always\n";
+		// If things are off, it's because there's a sinkhole (the Contents category) at the top of the graph. Renormalize all scores. 
+		if (fabs(sum - 1) > 0.001) {
+
+			float renormalization_factor = 1.0 / sum;
+
+			for (auto it = rw_probabilities_current->begin(); it != rw_probabilities_current->end(); it++)
+				it->second *= renormalization_factor;
+		}
 
 		// Next cycle: rw_probabilities_current will become rw_probabilities_last and the old rw_probabilities_last will go away. 
 		unordered_map<string, float> * tmp2 = rw_probabilities_last;
