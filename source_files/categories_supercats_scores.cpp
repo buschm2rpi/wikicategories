@@ -60,11 +60,6 @@ unsigned threads_working = 0;
 const unsigned MAX_THREADS = 8;
 
 
-// Count # of neighbors of a given node
-int count_neighbors_of(node *n) {
-	return n->parents.size() + n->children.size();
-}
-
 // Split a string
 vector<string> &split(const string &s, char delim, vector<string> &elems) {
     stringstream ss(s);
@@ -130,7 +125,7 @@ void random_walk(const string start_node_name, // node at which to begin
 
 	// Check that the start category is valid
 	try {
-		start_node = lookup_table[start_node_name];
+		start_node = lookup_table.at(start_node_name);
 	}
 
 	catch (out_of_range &) {
@@ -146,89 +141,36 @@ void random_walk(const string start_node_name, // node at which to begin
 
 	(*rw_probabilities_last)[start_node_name] = 1; // At t = 0, there's 100% probability we're at the starting node. If a node is not in the unordered_map at time t, there is 0% probability the random walker is there at time t. 
 
-
-	// Because there are so many nodes, we use a BFS to keep track of which nodes we must compute random-walker probability for. 
-
-	list<node *> *tovisit_now = new list<node *>;
-	list<node *> *tovisit_next = new list<node *>;
-	list<node *> *allvisited = new list<node *>; // keeps track of all visited nodes so we know which random-walker nodes we might have reached by this step
-	
-	unordered_set<node *> visited_set;
-
-	tovisit_now->push_back(start_node);
-	allvisited->push_back(start_node);
-
 	// Perform, walk_iterations times,
 	// a breadth-first-search step followed by a random walker recomputation step
 	for (int j = 0; j < walk_iterations; j++) {
 
-		// Perform one layer of BFS.  
-		while (!tovisit_now->empty()) {
-			node *nextnode = tovisit_now->front();
-			tovisit_now->pop_front();
-
-			// Visit all children and parents of this node. 
-			for (node *child : nextnode->children) {
-
-				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (visited_set.find(child) == visited_set.end()) {
-
-					tovisit_next->push_back(child);
-					visited_set.insert(child);
-				}
-			}
-
-			for (node *parent : nextnode->parents) {
-
-				// Make sure the node we're now considering has never been visited before and is not already scheduled to be visited. 
-				if (visited_set.find(parent) == visited_set.end()) {
-
-					tovisit_next->push_back(parent);
-					visited_set.insert(parent);
-				}
-			}
-
-			allvisited->push_back(nextnode);
-		}
-
-		// tovisit_now is now empty. Swap it and tovisit_next: on the next BFS cycle, we will visit all the nodes in what is currently tovisit_next. 
-		list<node *> *tmp = tovisit_now;
-		tovisit_now = tovisit_next;
-		tovisit_next = tmp;
 		
-		// Perform random walk calculations on all nodes in allvisited, since these are the nodes the random walker might have visited by this timestamp
-		for (node *n : *allvisited) {
+		// Perform random walk calculations on all nodes. 
+		for (auto it = lookup_table.begin(); it != lookup_table.end(); it++) {
+
+			node *n = it->second; // current node we're considering in relation to the start_node
 
 			float probability = 0; // probability the random walker is at this node at the current timestep
 
-			// For all parent nodes and children nodes of n, add up probabilities that we're now there. 
-			for (node *p : n->parents) {
-				
-				// Look up name in rw_probabilities_last to see whether we recorded a nonzero value. 
-				auto it = rw_probabilities_last->find(p->name);
-
-				// Not in hash table: we couldn't have been at p last iteration. 
-				if (it == rw_probabilities_last->end())
-					continue;
-
-				float parent_last_prob = it->second;
-					
-				probability += parent_last_prob / count_neighbors_of(p);
-			}
-			
+			// Iterate through all child nodes of n to determine the probability that we walked from c to n in this timestep. 
 			for (node *c : n->children) {
-				// Look up name in rw_probabilities_last to see whether we recorded a nonzero value. 
-				auto it = rw_probabilities_last->find(c->name);
 
-				// Not in hash table: we couldn't have been at c last iteration. 
-				if (it == rw_probabilities_last->end())
+				// Make sure this child has a nonzero score from last time
+				auto child_mapping = rw_probabilities_last->find(c->name);
+				if (child_mapping == rw_probabilities_last->end())
 					continue;
-
-				float child_last_prob = it->second;
-					
-				probability += child_last_prob / count_neighbors_of(c);
+				
+				// child was in rw_probabilities_last, so we might have been at the child last time, so we might be at the parent this time
+				float child_last_prob = child_mapping->second; // probability we were at the child last timestep
+				
+				probability += child_last_prob / c->parents.size(); // a walker at the child could have walked randomly to any of the child's parent nodes
 			}
-			
+
+			// Check whether probability is nonzero. If it's zero, we can ignore this node as long as it's not the start node (to which there is always alpha probability of returning).
+			if (probability == 0 && n != start_node)
+				continue;
+
 			// Make final adjustments to probability for n, given that we return randomly to the starting node. 
 			probability *= (1 - alpha);
 			
@@ -238,7 +180,16 @@ void random_walk(const string start_node_name, // node at which to begin
 			
 			(*rw_probabilities_current)[n->name] = probability;
 		}
+
+		// Perform sanity check: allowing for floating-point error, rw_probabilities_current should add up to 1 since there's a 100% probability the walker will be in the graph
+		float sum = 0;
 		
+		for (auto it = rw_probabilities_current->begin(); it != rw_probabilities_current->end(); it++)
+			sum += it->second;
+
+		if (fabs(sum - 1) > 0.001)
+			cerr << "Warning: rw_probabilities_current sums to " << sum << " at random walk iteration " < j << " for category " << start_node_name << ", should be 1 always\n";
+
 		// Next cycle: rw_probabilities_current will become rw_probabilities_last and the old rw_probabilities_last will go away. 
 		unordered_map<string, float> * tmp2 = rw_probabilities_last;
 		tmp2->clear(); // now empty and suitable for reuse
@@ -268,10 +219,6 @@ void random_walk(const string start_node_name, // node at which to begin
 	reassign_annotation_tasks(lookup_table);
 
 	// Clean up. 
-	delete tovisit_now;
-	delete tovisit_next;
-	delete allvisited;
-
 	delete rw_probabilities_last;
 	delete rw_probabilities_current;
 }
@@ -342,6 +289,8 @@ int main(int argc, char ** argv) {
 		cerr << "Unable to open file!";
 		return 1;
 	}
+
+	cerr << "Building node list...";
 
 
 	// Data loaded, perform random walks
