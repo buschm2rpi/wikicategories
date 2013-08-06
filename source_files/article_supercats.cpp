@@ -9,6 +9,8 @@
 
 	S(a,t) = max(S(n, t) for n in N) / sum(for t0 in T, max S(n, t) for n in N)
 
+EDIT: Now the average score, not the max, for testing. 
+
 	where a = an article, N = set of the article's categories, T = set of all top categories (categories we're ultimately interested in). 
 
 */
@@ -111,12 +113,8 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 	for (string cat : categories_list) {
 
 		// Ignore a category if it isn't in the lookup table
-		try {
-			lookup_table.at(cat);
-		}
-		catch (out_of_range &) {
+		if (lookup_table.find(cat) == lookup_table.end())
 			continue;
-		}
 
 		// Iterate through each supercat mapping for this category
 		for (auto it = lookup_table[cat]->begin(); it != lookup_table[cat]->end(); it++) {
@@ -124,19 +122,14 @@ Anarchism Political_culture Political_ideologies Social_theories Anti-fascism Gr
 			string supercat_name = it->first;
 			float supercat_score = it->second;
 
-			try {
-				supercats_map->at(supercat_name); // throws an exception if not present
+			if (supercats_map->find(supercat_name) != supercats_map->end()) { // present already
 
-				// No exception thrown here, so the supercat was already present. Compare the current score to the one already there to see which is better. 
+				// No exception thrown here, so the supercat was already present. Add the current score. 
 
-				float previous_supercat_score = (*supercats_map)[supercat_name];
-
-				if (supercat_score > previous_supercat_score)
-					// S(a, t) will be higher for this t if we use the S(n, t) for *this* n rather than the one previously stored. 
-					(*supercats_map)[supercat_name] = supercat_score;
+				(*supercats_map)[supercat_name] += supercat_score;
 			}
 			
-			catch (out_of_range &) {
+			else {
 				// Supercat not previously present. Set it. 
 				(*supercats_map)[supercat_name] = supercat_score;
 			}
