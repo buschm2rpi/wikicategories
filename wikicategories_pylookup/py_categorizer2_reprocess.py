@@ -50,9 +50,9 @@ for c in clusters:
 	for supercat, score in c["total_supercat_scores"].iteritems():
 		
 		if supercat in total_query_scores:
-			total_query_scores[supercat] += score * c["average_article_score"]
+			total_query_scores[supercat] += score * c["score"]
 		else:
-			total_query_scores[supercat] = score * c["average_article_score"]
+			total_query_scores[supercat] = score * c["score"]
 
 # save space on disk by removing individual calculated supercat vectors for each cluster
 for c in clusters:
